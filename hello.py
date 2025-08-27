@@ -1,23 +1,3 @@
-ackage (regression)
-- Also gives actionable recommendations.
-
-How to run (locally)
-1) pip install streamlit scikit-learn pandas numpy
-2) streamlit run app.py
-
-How to plug real models
-- Place your trained models as:
-  models/
-    placement_clf.pkl   (Binary classifier: 0/1)
-    next_cgpa_reg.pkl   (Regressor: float)
-    package_reg.pkl     (Regressor: float, e.g., LPA)
-- The app will auto-load these if present. If not, it uses a simple heuristic baseline.
-
-Notes
-- Replace the heuristic with real models for production.
-- Feature engineering must match the training pipeline.
-"""
-
 import os
 import math
 import numpy as np
@@ -25,7 +5,6 @@ import pandas as pd
 import streamlit as st
 from dataclasses import dataclass
 
-# Optional: only if scikit-learn models are available
 try:
     import joblib
 except Exception:
@@ -33,20 +12,16 @@ except Exception:
 
 st.set_page_config(page_title="Student Career Prediction", page_icon="🎯", layout="centered")
 
-# -------------------------
-# Feature schema
-# -------------------------
 FEATURES = [
-    "current_cgpa",           # float 0-10
-    "attendance_pct",         # float 0-100
-    "backlogs",               # int >=0
-    "projects_count",         # int >=0
-    "internships_count",      # int >=0
-    "tech_skill_score",       # float 0-100
-    "soft_skill_score",       # float 0-100
-    "certifications_count",   # int >=0
-    "applied_companies",      # int >=0
-    # One-hot for branch (CSE, ECE, ME, CE, IT, Other)
+    "current_cgpa",
+    "attendance_pct",
+    "backlogs",
+    "projects_count",
+    "internships_count",
+    "tech_skill_score",
+    "soft_skill_score",
+    "certifications_count",
+    "applied_companies",
     "branch_CSE",
     "branch_ECE",
     "branch_ME",
@@ -63,9 +38,7 @@ class Models:
     next_cgpa_reg: object | None
     package_reg: object | None
 
-
 def load_models() -> Models:
-    """Load models from models/*.pkl if available; else return None placeholders."""
     placement, next_cgpa, package = None, None, None
     if joblib is not None:
         try:
@@ -82,34 +55,25 @@ def load_models() -> Models:
             package = None
     return Models(placement, next_cgpa, package)
 
-
 MODELS = load_models()
 
-# -------------------------
-# Heuristic baselines (used when models not found)
-# -------------------------
-
 def heuristic_proba_placement(x: dict) -> float:
-    # A simple, transparent scoring translated to probability
     score = 0.0
-    score += (x["current_cgpa"] - 6.0) * 8      # CGPA weight
-    score += (x["attendance_pct"] - 70) * 0.4   # Attendance weight
-    score -= x["backlogs"] * 6                  # Backlogs penalty
+    score += (x["current_cgpa"] - 6.0) * 8
+    score += (x["attendance_pct"] - 70) * 0.4
+    score -= x["backlogs"] * 6
     score += x["projects_count"] * 2.5
     score += x["internships_count"] * 4.0
     score += (x["tech_skill_score"] - 50) * 0.3
     score += (x["soft_skill_score"] - 50) * 0.2
     score += x["certifications_count"] * 1.0
-    score += min(x["applied_companies"], 20) * 0.6  # network effect (cap)
-    # Branch slight effect
+    score += min(x["applied_companies"], 20) * 0.6
     if x["branch_CSE"] or x["branch_IT"]:
         score += 4
     elif x["branch_ECE"]:
         score += 2
-    # Convert score to 0-1 via logistic
     proba = 1 / (1 + math.exp(-score/20))
     return float(np.clip(proba, 0, 1))
-
 
 def heuristic_next_cgpa(x: dict) -> float:
     base = x["current_cgpa"]
@@ -118,18 +82,12 @@ def heuristic_next_cgpa(x: dict) -> float:
     pred = base + improvement - penalty
     return float(np.clip(pred, 5.0, 10.0))
 
-
 def heuristic_package_lpa(x: dict, placed_proba: float) -> float:
-    base = 2.5  # base LPA
+    base = 2.5
     lift = 0.25 * x["projects_count"] + 0.6 * x["internships_count"] + 0.03 * x["tech_skill_score"] + 0.02 * x["soft_skill_score"] + 0.2 * x["certifications_count"]
     cgpa_lift = 0.5 * max(0, x["current_cgpa"] - 7.0)
     pred = (base + lift + cgpa_lift) * (0.6 + 0.8 * placed_proba)
     return float(np.clip(pred, 1.8, 30.0))
-
-
-# -------------------------
-# Recommendations
-# -------------------------
 
 def build_recommendations(x: dict, placed_proba: float) -> list[str]:
     recs = []
@@ -151,17 +109,12 @@ def build_recommendations(x: dict, placed_proba: float) -> list[str]:
         recs.append("Add 2 relevant certifications (e.g., SQL, Python, Excel/PowerBI, ML) aligned with your target role.")
     if x["applied_companies"] < 10:
         recs.append("Expand applications to 10–20 companies; tailor resume keywords to JD with measurable achievements.")
-    # Proba-specific advice
     if placed_proba < 0.5:
         recs.append("Next 6 weeks: 3 projects + 1 certification + 10 mock interviews — then re-check your score.")
     else:
         recs.append("You're on track. Now aim for product-based mock interviews and refine system design basics.")
     return recs
 
-
-# -------------------------
-# UI
-# -------------------------
 st.title("🎯 Student Career Prediction")
 st.caption("Predict placement eligibility, next CGPA, and expected package with actionable recommendations.")
 
@@ -182,10 +135,8 @@ with st.form("student_form"):
         soft_skill_score = st.slider("Soft Skill Score", min_value=0, max_value=100, value=65)
         certifications_count = st.number_input("Certifications (count)", min_value=0, max_value=20, value=1, step=1)
         applied_companies = st.number_input("Companies applied (count)", min_value=0, max_value=100, value=5, step=1)
-
     submitted = st.form_submit_button("Predict")
 
-# Build feature vector
 branch_one_hot = {f"branch_{b}": 1 if branch == b else 0 for b in BRANCHES}
 input_dict = {
     "current_cgpa": float(current_cgpa),
@@ -203,7 +154,6 @@ input_dict = {
 X = np.array([[input_dict[feat] for feat in FEATURES]], dtype=float)
 
 if submitted:
-    # Placement prediction
     if MODELS.placement_clf is not None:
         try:
             proba = float(MODELS.placement_clf.predict_proba(X)[0,1])
@@ -214,7 +164,6 @@ if submitted:
 
     placed = proba >= 0.5
 
-    # Next CGPA
     if MODELS.next_cgpa_reg is not None:
         try:
             next_cgpa = float(MODELS.next_cgpa_reg.predict(X)[0])
@@ -223,7 +172,6 @@ if submitted:
     else:
         next_cgpa = heuristic_next_cgpa(input_dict)
 
-    # Package
     if MODELS.package_reg is not None:
         try:
             package_lpa = float(MODELS.package_reg.predict(X)[0])
@@ -245,21 +193,10 @@ if submitted:
 
     st.progress(proba)
 
-    # Recommendations
     recs = build_recommendations(input_dict, proba)
     st.markdown("### Recommendations")
     for i, r in enumerate(recs, start=1):
         st.write(f"{i}. {r}")
 
-    # Debug / Feature view
     with st.expander("See input features"):
         st.json(input_dict)
-
-# -------------------------
-# Training stub (optional): displayed as info only
-# -------------------------
-st.markdown("---")
-st.caption(
-    "Tip: Train your models separately with scikit-learn (train/test split, pipelines, scaling/encoding), "
-    "save with joblib.dump(model, 'models/placement_clf.pkl'), and ensure FEATURES order matches here."
-)
